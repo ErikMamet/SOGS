@@ -1,0 +1,14 @@
+plyfile
+torch
+torchvision 
+torchaudio
+tqdm
+click
+hydra-core
+kornia
+pandas
+pip
+scipy
+screeninfo
+wandb
+imagecodecs

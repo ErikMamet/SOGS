@@ -1,0 +1,12 @@
+# ninja log v5
+1	21565	1763598861000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o	9062c3d9c24f25d4
+1	41938	1763598882000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o	167c880c6d6d5256
+168	13052	1763656366000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/simple_knn.o	da0b5145d51eb7a2
+168	22486	1763656376000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o	59f579391a20559
+168	42806	1763656396000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o	9c999bb8823c5819
+105	11140	1763665215000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/simple_knn.o	8c2ec160d9a36457
+105	21558	1763665226000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o	d870aafb6ce8155a
+105	41998	1763665246000000000	/lustre06/project/6006797/erikmam/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o	856ea6a302d7cb3f
+248	12311	1765576810000000000	/lustre06/project/6006797/erikmam/SOGS/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/simple_knn.o	f979dd59df5ee47a
+247	20660	1765576819000000000	/lustre06/project/6006797/erikmam/SOGS/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o	88ff73bbd1402200
+248	41847	1765576840000000000	/lustre06/project/6006797/erikmam/SOGS/SOGS/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o	6de0b25d052d4544

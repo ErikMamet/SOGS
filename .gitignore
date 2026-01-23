@@ -1,0 +1,14 @@
+SOGS/*.pyc
+SOGS/.vscode
+*.pyc
+.vscode
+SOGS/playground/outputs
+SOGS/output
+SOGS/build
+SOGS/diff_rasterization/diff_rast.egg-info
+SOGS/diff_rasterization/dist
+SOGS/tensorboard_3d
+SOGS/screenshots
+SOGS/data
+SOGS/SIBR_viewersAnaconda3-2024.02-1-Linux-x86_64.sh
+SOGS/temp
