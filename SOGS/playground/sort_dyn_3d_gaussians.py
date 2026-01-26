@@ -129,6 +129,8 @@ def pre_process_df(df, sidelen, device):
 
 
 def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base", exp="Base"):
+    num_gaussians = len(df)
+    sidelen = int(np.sqrt(num_gaussians))
     t0=time.time()
     orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
     print(f"VAD of ply: {orig_vad:.4f}")
@@ -155,9 +157,6 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
             device = "cpu"
 
         print(f"Using device: {device}")
-
-        num_gaussians = len(df)
-        sidelen = int(np.sqrt(num_gaussians))
 
         df = prune_gaussians(df, sidelen * sidelen)
         
