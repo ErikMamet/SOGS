@@ -129,23 +129,21 @@ def pre_process_df(df, sidelen, device):
 
 
 def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base", exp="Base"):
-    num_gaussians = len(df)
-    sidelen = int(np.sqrt(num_gaussians))
+   
     t0=time.time()
-    orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
-    print(f"VAD of ply: {orig_vad:.4f}")
     
     if (resume_from_last and os.path.exists("./sorted_indices.npy")):
         print("[sort_dyn_3d_gaussians.py] Pre-computed sorted indexes stored at ./sorted_indices.npy found, resuming from last ")
         sorted_indices = np.load("./sorted_indices.npy")
         num_gaussians = len(df)
         sidelen = int(np.sqrt(num_gaussians))
-
+        orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
+        print(f"VAD of ply: {orig_vad:.4f}")
+    
     else :
         print("[sort_dyn_3d_gaussians.py] Re-computing sorted indexes from scratch ")
         torch.manual_seed(42)
         np.random.seed(42)
-
         if torch.cuda.is_available(): 
             print("Sorting on cuda GPU")
             device = torch.device("cuda")
@@ -157,8 +155,11 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
             device = "cpu"
 
         print(f"Using device: {device}")
-
+        num_gaussians = len(df)
+        sidelen = int(np.sqrt(num_gaussians))
         df = prune_gaussians(df, sidelen * sidelen)
+        orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
+        print(f"VAD of ply: {orig_vad:.4f}")
         
         
         ## ----- 1) Print all column names
