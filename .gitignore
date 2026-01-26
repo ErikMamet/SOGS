@@ -12,3 +12,4 @@ SOGS/screenshots
 SOGS/data/*
 SOGS/SIBR_viewersAnaconda3-2024.02-1-Linux-x86_64.sh
 SOGS/temp/*
+SOGS/submodules/*/build/*
