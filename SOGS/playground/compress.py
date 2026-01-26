@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import json 
-
+import time
 
 # Determine the path to the SOGS folder relative to this script
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,10 +106,18 @@ def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, json_path: str = No
 
     return report
 
+def get_latest_output_dir(exp, seq):
+    base_output_dir = './playground/compressed_outputs'
+    dirs = [d for d in os.listdir(base_output_dir) if os.path.isdir(os.path.join(base_output_dir, d))]
+    filtered_dirs = [d for d in dirs if d.startswith(f'compression_{exp}_{seq}_')]
+    if not filtered_dirs:
+        raise FileNotFoundError(f"No output directories found for exp '{exp}' and seq '{seq}'")
+    latest_dir = max(filtered_dirs, key=lambda d: pd.Timestamp(d.split('_')[-2] + '_' + d.split('_')[-1], format="%Y%m%d_%H%M%S"))
+    return os.path.join(base_output_dir, latest_dir)
 
-def main(npz_path, compress = False, use_sorted_indexes = True ,decompress = True, test_bypass= False):
+def codec(npz_path = None, compress = False, use_sorted_indexes = True ,decompress = True, test_bypass= False, exp=None, seq=None):
     #date and time stamp for output folder naming
-    output_dir = './playground/compressed_outputs'+'/'+'compression_'+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(output_dir, exist_ok=True)
     if compress == True:
         df = saved_npz_to_df(npz_path)
@@ -124,12 +132,17 @@ def main(npz_path, compress = False, use_sorted_indexes = True ,decompress = Tru
         # Calling it directly will make Click try to parse sys.argv which causes
         # the "unexpected extra arguments" error. Call the underlying callback
         # (the original Python function) when available.
-        
+        print("ENTERING SORTING")     
+        t1= time.time()   
         sorted_df = sort_dyn_gaussians(df, resume_from_last=use_sorted_indexes)
+        t2 = time.time()
+        print("sorting took ", t2 - t1, " seconds")
         print("ENTERING COMPRESSION")
         output_dir = compress_df(sorted_df, out_folder_path=output_dir)
-        
+        t3 = time.time()
+        print("compression took ", t3 - t2, " seconds")
     if decompress == True:
+        output_dir = get_latest_output_dir(exp, seq)
         decompressed_df = decompress_df(output_dir)
         
         if compress == False:
@@ -144,4 +157,4 @@ def main(npz_path, compress = False, use_sorted_indexes = True ,decompress = Tru
     #TODO, understand (no chat gpt) and modify core.py so that is takes in vectors of any size (since ours are bound to vary)
     
 if __name__ == "__main__":
-    main()
+    pass
