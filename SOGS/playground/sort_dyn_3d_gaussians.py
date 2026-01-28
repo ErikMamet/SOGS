@@ -127,7 +127,6 @@ def pre_process_df(df, sidelen, device):
     return params_torch_grid
     # 32 GB in ~8mn
 
-
 def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base", exp="Base"):
    
     t0=time.time()
@@ -137,6 +136,7 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
         sorted_indices = np.load("./sorted_indices.npy")
         num_gaussians = len(df)
         sidelen = int(np.sqrt(num_gaussians))
+        df = prune_gaussians(df, sidelen * sidelen)
         orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
         print(f"VAD of ply: {orig_vad:.4f}")
     
@@ -190,7 +190,7 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
         shuffled_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
         print(f"VAD of shuffled ply: {shuffled_vad:.4f}")
         
-        params_torch_grid = pre_process_df(df)
+        params_torch_grid = pre_process_df(df, sidelen, device)
 
         print("before sort_with_plas -- params_torch_grid.shape : ", params_torch_grid.shape )
         sorted_coords, sorted_grid_indices = sort_with_plas(params_torch_grid, MIN_BLOC_SIZE, improvement_break=1e-4, verbose=True)
