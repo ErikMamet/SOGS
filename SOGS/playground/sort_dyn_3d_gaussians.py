@@ -85,26 +85,25 @@ def pre_process_df(df, sidelen, device):
     q0 = df.loc[:, df.columns.str.startswith("q0_")].values
     q1 = df.loc[:, df.columns.str.startswith("q1_")].values
     q2 = df.loc[:, df.columns.str.startswith("q2_")].values
+    q3 = df.loc[:, df.columns.str.startswith("q3_")].values
     ##    
     ##    q0_quantized, r_min, r_max = custom_quantize(q0)
     ##    q1_quantized, r_min, r_max = custom_quantize(q1)
     ##    q2_quantized, r_min, r_max = custom_quantize(q2)
     ##    
-    s0 = df.loc[:, df.columns.str.startswith("s0_")].values
-    s1 = df.loc[:, df.columns.str.startswith("s1_")].values
-    s2 = df.loc[:, df.columns.str.startswith("s2_")].values
+    s0 = df.loc[:, df.columns.str.startswith("s0")].values
+    s1 = df.loc[:, df.columns.str.startswith("s1")].values
+    s2 = df.loc[:, df.columns.str.startswith("s2")].values
     ##    
-    alpha = df.loc[:, df.columns.str.startswith("alpha_")].values
-    
+    alpha = df.loc[:, df.columns.str.startswith("alpha")].values
+    print([df.columns.str.startswith("alpha")])
+    print("alpha shape ", alpha.shape)
     # 2) ----------- convert to torch -----------
     x_torch, y_torch, z_torch = torch.from_numpy(x).float().to(device), torch.from_numpy(y).float().to(device), torch.from_numpy(z).float().to(device)
     q0_torch, q1_torch, q2_torch = torch.from_numpy(q0).float().to(device), torch.from_numpy(q1).float().to(device), torch.from_numpy(q2).float().to(device)
     s0_torch, s1_torch, s2_torch = torch.from_numpy(s0).float().to(device), torch.from_numpy(s1).float().to(device), torch.from_numpy(s2).float().to(device)
     alpha_torch = torch.from_numpy(alpha).float().to(device)
-    dc_vals = np.concatenate([r, g, b], axis=1)
-
-    rgb_torch = torch.from_numpy(dc_vals).float().to(device)
-    print("rgb_torch shape", rgb_torch.shape)
+    print("alpha_torch shape", alpha_torch.shape)
 
     ##trajectory vectors x
     #x_traj_vals = df.loc[:, df.columns.str.startswith("x")].values
@@ -120,7 +119,32 @@ def pre_process_df(df, sidelen, device):
     #print("y_traj_torch shape", y_traj_torch.shape)
     #print("z_traj_torch shape", z_traj_torch.shape)
     
-    params = torch.cat([rgb_torch, x_torch, y_torch, z_torch], dim=1)
+    #only keep the 10 first trajectory vectors for now, to reduce the dimensionality for sorting and see if it already gives good results (we can keep more traj vectors later if needed)
+    x_traj_torch = x_torch[:, :1]
+    y_traj_torch = y_torch[:, :1]
+    z_traj_torch = z_torch[:, :1]
+    r_traj_torch = r[:, :1]
+    g_traj_torch = g[:, :1]
+    b_traj_torch = b[:, :1]
+    s0 = torch.from_numpy(df["s0"].values.reshape(-1, 1)).float().to(device)
+    s1 = torch.from_numpy(df["s1"].values.reshape(-1, 1)).float().to(device)
+    s2 = torch.from_numpy(df["s2"].values.reshape(-1, 1)).float().to(device)
+    q0 = torch.from_numpy(df["q0_0"].values.reshape(-1, 1)).float().to(device)
+    q1 = torch.from_numpy(df["q1_0"].values.reshape(-1, 1)).float().to(device)
+    q2 = torch.from_numpy(df["q2_0"].values.reshape(-1, 1)).float().to(device)
+    q3 = torch.from_numpy(df["q3_0"].values.reshape(-1, 1)).float().to(device)
+    dc_vals = np.concatenate([r_traj_torch, g_traj_torch, b_traj_torch], axis=1)
+    rgb_torch = torch.from_numpy(dc_vals).float().to(device)
+    print("s0 shape", s0.shape)
+    print("s1 shape", s1.shape)
+    print("s2 shape", s2.shape)
+    print("q1 shape", q1.shape)
+    print("q2 shape", q2.shape)
+    print("q3 shape", q3.shape)
+    params = torch.cat([x_traj_torch, y_traj_torch, z_traj_torch, rgb_torch, alpha_torch, s0, s1, s2, q0, q1, q2, q3], dim=1) #rgb_torch], dim=1) #, 
+    #params2 = torch.cat([rgb_torch], dim=1) #rgb_torch], dim=1) #, 
+    #params = torch.cat([params1, params2, alpha_torch], dim=1) # (N, C)
+    print("SORTING ACCORDING TO XYZ ONLY FOR NOW, params shape : ", params.shape)
 
     params_torch_grid = params.permute(1, 0).reshape(-1, sidelen, sidelen) # permute => channels first (C, H, W)
     
@@ -129,6 +153,11 @@ def pre_process_df(df, sidelen, device):
 
 def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base", exp="Base"):
    
+def sort_dyn_gaussians(df, resume_from_last = False, init_order= None, seq="Base", exp="Base"):
+    #print("sorted df is df")
+    #print("df comumns before pruning: ", df.columns)
+    #df = prune_gaussians(df, int(np.sqrt(len(df)))**2)
+    #return df
     t0=time.time()
     
     if (resume_from_last and os.path.exists("./sorted_indices.npy")):
@@ -136,6 +165,7 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
         sorted_indices = np.load("./sorted_indices.npy")
         num_gaussians = len(df)
         sidelen = int(np.sqrt(num_gaussians))
+        df = prune_gaussians(df, sidelen * sidelen)
         df = prune_gaussians(df, sidelen * sidelen)
         orig_vad = compute_vad(df.values.reshape(sidelen, sidelen, -1))
         print(f"VAD of ply: {orig_vad:.4f}")
@@ -148,10 +178,10 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
             print("Sorting on cuda GPU")
             device = torch.device("cuda")
         elif torch.backends.mps.is_available():
-            print("Running on MAC, you payed too much for your computer and it's still slow")
+            print("Running on MAC, you payed too much for your computer and it's still slow -- not tested")
             device = torch.device("mps") 
         else:
-            print("Running on CPU, this may be slow -- consider using a machine with a CUDA-capable GPU")
+            print("Running on CPU, this may be slow -- consider using a machine with a CUDA-capable GPU -- not tested")
             device = "cpu"
 
         print(f"Using device: {device}")
@@ -202,7 +232,13 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
         np.save("./sorted_indices.npy", sorted_indices)
         print("the sorted_indices.npy file should just have been saved", flush=True)
 
+    #remove all attributes that are coded in float64
     sorted_df = df.iloc[sorted_indices]
+    
+    for col in sorted_df.columns:
+        if sorted_df[col].dtype==np.float64:
+            print("dropping col ", col)
+            sorted_df = sorted_df.drop(columns=[col])
 
     sorted_vad = compute_vad(sorted_df.values.reshape(sidelen, sidelen, -1))
     
@@ -211,7 +247,7 @@ def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base"
     print(f"Sorting completed in {t1 - t0:.2f} seconds.")
     return sorted_df
 
-def write_fields_to_raw(sorted_df, repo_path="/home/erikmam/projects/def-scoulomb/erikmam/SOGS/playground/outputs/", num_bits=12):
+def write_fields_to_raw(sorted_df, repo_path="/home/erikmamet/Current_proj/SOGS/playground/outputs/", num_bits=12):
     """
     Write each column of sorted_df to a PNG image. Each column is reshaped into a square
     of side sqrt(N) where N is the number of rows in sorted_df. Values are min-max
@@ -329,5 +365,5 @@ def write_fields_to_raw(sorted_df, repo_path="/home/erikmam/projects/def-scoulom
 
 
 if __name__ == "__main__":
-    sort_dyn_gaussians()
+    sort_dyn_gaussians("/home/erikmamet/Current_proj/Dynamic3DGaussians/playground/compressed_outputs/compression_com_decomp_test_5_basketball_20260128_075454")
 

@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: SOGS
-Version: 0.1.0
-Summary: Modifications of https://github.com/fraunhoferhhi ; The playground package contains code by Erik Mamet ; the rest is from the original repository.
-Author: Wieland Morgenstern, Florian Barthel, Anna Hilsmann, Peter Eisert + Erik Mamet (playground package)
-Dynamic: author
-Dynamic: summary

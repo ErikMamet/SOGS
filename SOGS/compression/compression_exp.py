@@ -102,33 +102,24 @@ def get_attr_numpy(gaussians, attr_name):
 def df_to_numpy(df, attr_name):
     attr_numpy = df[attr_name].to_numpy()
     attr_numpy = attr_numpy.reshape(np.sqrt(attr_numpy.shape[0]).astype(int), np.sqrt(attr_numpy.shape[0]).astype(int), -1)
-    print("shape of attr_numpy: ", attr_numpy.shape)
     return attr_numpy
 
 def compress_attr(attr_config, gaussians, out_folder):
-    print("flag 1", flush=True)
     attr_name = attr_config['name']
-    print("compressing attribute: ", attr_name, flush=True)
     attr_method = attr_config['method']
-    print("using method: ", attr_method, flush=True)
     attr_params = attr_config.get('params', {})
-    print("attr_params: ", attr_params, flush=True)
     
     if not attr_params:
-        print("flag 2", flush=True)
         attr_params = {}
     
     codec = codecs[attr_method]()
-    print("flag 2.5", flush=True)
     attr_np = df_to_numpy(gaussians, attr_name)
-    print("flag 2.7", flush=True)
     
     file_name = f"{attr_name}.{codec.file_ending()}"
-    print("flag 2.9", flush=True)
     out_file = os.path.join(out_folder, file_name)
 
     if attr_config.get('contract', False):
-        print("flag 3", flush=True)
+        print("contract is true in compress_attr", flush=True)
         # sc = SceneContraction()
         # TODO take the original cuda array
         # attr = torch.tensor(attr_np, device="cuda")
@@ -137,7 +128,7 @@ def compress_attr(attr_config, gaussians, out_folder):
         attr_np = log_transform(attr_np)
     
     if "quantize" in attr_config:
-        print("flag 4", flush=True)
+        print("normalize is true in compress_attr", flush=True)
         quantization = attr_config["quantize"]
         min_val = attr_np.min()
         max_val = attr_np.max()
@@ -151,15 +142,17 @@ def compress_attr(attr_config, gaussians, out_folder):
         attr_np = attr_np_quantized * (val_range) + min_val
         attr_np = attr_np.astype(np.float32)
 
-    print("flag before normalize check", flush=True)
     if attr_config.get('normalize', False):
-        print("flag 5", flush=True)
+        print("normalize is true in compress_attr", flush=True)
         min_val, max_val = codec.encode_with_normalization(attr_np, attr_name, out_file, **attr_params)
         return file_name, min_val, max_val
     else:
-        print("flag 6", flush=True)
-        codec.encode(attr_np, out_file, **attr_params)
-        print("flag 7 yayayayayyyyy", flush=True)
+        #assert that attr_numpy is not float 64 if it is pring the 
+
+        if attr_np.dtype == np.float64:
+            print(f"Error: skipping : attribute {attr_name} numpy array is float64, converting to float32 for compression.")
+        else :
+            codec.encode(attr_np, out_file, **attr_params)
         return file_name, None, None
 
 
@@ -177,9 +170,6 @@ def decompress_attr(attr_config, compressed_file, min_val, max_val):
     if attr_config.get('contract', False):
         decompressed_attr = inverse_log_transform(decompressed_attr)
 
-    print("decompressed attr shape: ", decompressed_attr.shape)
-    print("decompressed attr type: ", type(decompressed_attr))
-    print("decompressed attr dtype: ", decompressed_attr.dtype)
     
     return decompressed_attr 
     ## TODO dtype?

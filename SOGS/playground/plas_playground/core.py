@@ -195,8 +195,8 @@ def params_to_blocky(
     # (c, h, w) -> (c, h, w) [values shifted, not shape]
     params_rolled = torch.roll(params, (shift_y, shift_x), dims=(1, 2))
 
-    print("param to blocky args : params -> ok ;", block_size, block_divisor, num_pixel_blocks, shift_y, shift_x )
-    print("================= a", params_rolled.shape)
+    #print("param to blocky args : params -> ok ;", block_size, block_divisor, num_pixel_blocks, shift_y, shift_x )
+    #print("================= a", params_rolled.shape)
 
     # Step 2: Truncate to valid region containing whole blocks
     # Ensures dimensions are multiples of block_size
@@ -205,7 +205,7 @@ def params_to_blocky(
         :, : num_pixel_blocks * block_size, : num_pixel_blocks * block_size
     ]
 
-    print("================= b", params_truncated.shape)
+    #print("================= b", params_truncated.shape)
 
 
     # Step 3: Add dummy dimension for PixelUnshuffle operation

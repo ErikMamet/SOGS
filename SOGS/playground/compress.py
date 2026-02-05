@@ -24,7 +24,7 @@ if SOGS_DIR not in sys.path:
 
 # absolute imports must come after adding REPO_ROOT
 from ..compression import compression_exp as compr
-from .sort_dyn_3d_gaussians import sort_dyn_gaussians
+from .sort_dyn_3d_gaussians import sort_dyn_gaussians, prune_gaussians
 from .extract_pretrained_dyn_3dgs import saved_npz_to_df
 
 
@@ -35,23 +35,18 @@ def compress_df(df, out_folder_path):
     os.makedirs(out_folder_path, exist_ok=True)
     attr_configs = []
     for column in df.columns:
-        print("compressing column: ", column)
         attr_configs.append({
             'name': column,
             'method': 'jpeg-xl'
         })
         
         save_path, out, out = compr.compress_attr(attr_configs[-1], df, out_folder_path)
-        print("file_successfully saved at :" , save_path)
-
 
 def decompress_df(reconstructed_df_dir):
-    os.makedirs(os.path.dirname(reconstructed_df_dir), exist_ok=True) #make parent dirs if dont exist
     reconstructed_df = pd.DataFrame()
     attr_configs = []
     names = [name.split(".")[0] for name in os.listdir(reconstructed_df_dir) if name.endswith(".jxl")]
     for column in names:
-        print("decompressing column: ", column)
         attr_configs.append({
             'name': column,
             'method': 'jpeg-xl'
@@ -93,8 +88,7 @@ def compare_dataframes(df1: pd.DataFrame, df2: pd.DataFrame, json_path: str = No
     mse = {}
     for col in dtype_matches:
         if pd.api.types.is_numeric_dtype(df1[col]):
-            n = min(len(df1[col]), len(df2[col]))  # align lengths
-            diff = df1[col].iloc[:n].to_numpy() - df2[col].iloc[:n].to_numpy()
+            diff = df1[col].to_numpy() - df2[col].to_numpy()
             mse[col] = float(np.mean(diff ** 2))
 
     report["mse"] = mse
@@ -112,14 +106,22 @@ def get_latest_output_dir(exp, seq):
     filtered_dirs = [d for d in dirs if d.startswith(f'compression_{exp}_{seq}_')]
     if not filtered_dirs:
         raise FileNotFoundError(f"No output directories found for exp '{exp}' and seq '{seq}'")
-    latest_dir = max(filtered_dirs, key=lambda d: pd.Timestamp(d.split('_')[-2] + '_' + d.split('_')[-1], format="%Y%m%d_%H%M%S"))
+    latest_dir = max(
+        filtered_dirs,
+        key=lambda d: pd.to_datetime(
+            "_".join(d.split("_")[-2:]),
+            format="%Y%m%d_%H%M%S"
+        )
+    )
+    print("we found that the latest dir was ", latest_dir)
     return os.path.join(base_output_dir, latest_dir)
 
-def codec(npz_path = None, compress = False, use_sorted_indexes = True ,decompress = True, test_bypass= False, exp=None, seq=None):
+def codec(npz_path = None, compress = False, use_sorted_indexes = False ,decompress = False, test_bypass= False, exp=None, seq=None):
     #date and time stamp for output folder naming
-    output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
-    os.makedirs(output_dir, exist_ok=True)
+    print("Entering codec function ")
     if compress == True:
+        output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(output_dir, exist_ok=True)
         df = saved_npz_to_df(npz_path)
         if test_bypass == True :
             print("============================== NO COMPRESSION OR DECOMPRESSION =====================================")
@@ -138,23 +140,39 @@ def codec(npz_path = None, compress = False, use_sorted_indexes = True ,decompre
         t2 = time.time()
         print("sorting took ", t2 - t1, " seconds")
         print("ENTERING COMPRESSION")
-        output_dir = compress_df(sorted_df, out_folder_path=output_dir)
+        compress_df(sorted_df, out_folder_path=output_dir)
         t3 = time.time()
         print("compression took ", t3 - t2, " seconds")
+        print("compression output folder :", output_dir)
+        total_size = 0
+        for file in os.listdir(output_dir):
+            file_path= os.path.join(output_dir, file)
+            file_size =os.path.getsize(file_path)
+            total_size += file_size
+        print("total compressed size (bytes) : ", total_size)
     if decompress == True:
+        #df = saved_npz_to_df(npz_path)
+        #return prune_gaussians(df, int(np.sqrt(len(df)))**2)
         output_dir = get_latest_output_dir(exp, seq)
+        print("++++++++ decompressing ", output_dir)
+        total_size = 0
+        for file in os.listdir(output_dir):
+            file_path= os.path.join(output_dir, file)
+            file_size =os.path.getsize(file_path)
+            total_size += file_size
+        print("total compressed size (bytes) : ", total_size)
         decompressed_df = decompress_df(output_dir)
-        
-        if compress == False:
-            df = saved_npz_to_df(npz_path)
+        #print decompressed_df keys
         # compare decompressed df to original df
         # make sure they have the same shape and columns
         # make sure that column values are close enough (since compression could be lossy)
-        report = compare_dataframes(df, decompressed_df, json_path="/home/erikmam/projects/def-scoulomb/erikmam/SOGS/SOGS/playground/compressed_outputs/decompression_report.json")
-        print("decompressed df shape: ", decompressed_df.shape)
-        print("decompressed df columns: ", decompressed_df.columns)
+        if npz_path is not None:
+            df = saved_npz_to_df(npz_path)
+            sorted_df = sort_dyn_gaussians(df, resume_from_last=use_sorted_indexes)
+            report = compare_dataframes(sorted_df, decompressed_df, json_path=get_latest_output_dir(exp, seq) + "/decompression_report.json")
+        print("WE ARE RETURNING THE SORTED_DF DF AS A TEST")
         return decompressed_df
     #TODO, understand (no chat gpt) and modify core.py so that is takes in vectors of any size (since ours are bound to vary)
     
 if __name__ == "__main__":
-    pass
+    decompress_df()
