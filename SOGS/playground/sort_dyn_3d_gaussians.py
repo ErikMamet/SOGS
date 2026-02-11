@@ -151,8 +151,6 @@ def pre_process_df(df, sidelen, device):
     return params_torch_grid
     # 32 GB in ~8mn
 
-def sort_dyn_gaussians(df, resume_from_last = True, init_order= None, seq="Base", exp="Base"):
-   
 def sort_dyn_gaussians(df, resume_from_last = False, init_order= None, seq="Base", exp="Base"):
     #print("sorted df is df")
     #print("df comumns before pruning: ", df.columns)
@@ -248,110 +246,114 @@ def sort_dyn_gaussians(df, resume_from_last = False, init_order= None, seq="Base
     return sorted_df
 
 def write_fields_to_raw(sorted_df, repo_path="/home/erikmamet/Current_proj/SOGS/playground/outputs/", num_bits=12):
-    """
-    Write each column of sorted_df to a PNG image. Each column is reshaped into a square
-    of side sqrt(N) where N is the number of rows in sorted_df. Values are min-max
-    normalized per-field to 0-255 and saved as grayscale PNGs. Returns list of written paths.
-    """
-    print("-------------------------- repo_path : ", repo_path, flush=True)
-    os.makedirs(repo_path, exist_ok=True)
 
-    n = len(sorted_df)
-    sidelen = int(math.isqrt(n))
-    if sidelen * sidelen != n:
-        raise ValueError(f"Number of rows ({n}) is not a perfect square; cannot reshape to square images.")
-
-    saved_paths = []
     
-    # Groups parameters for quantization (use sorted_df, not outer df)
-    # x,y,z quantized separately
-    x = sorted_df.loc[:, sorted_df.columns.str.startswith("x_")].values
-    y = sorted_df.loc[:, sorted_df.columns.str.startswith("y_")].values
-    z = sorted_df.loc[:, sorted_df.columns.str.startswith("z_")].values
-    print("xyz shapes ", x.shape, y.shape, z.shape)
-    x_quantized, x_min, x_max = custom_quantize(x, q_type="uniform", num_bits=num_bits)
-    y_quantized, y_min, y_max = custom_quantize(y, q_type="uniform", num_bits=num_bits)
-    z_quantized, z_min, z_max = custom_quantize(z, q_type="uniform", num_bits=num_bits)
-    
-    # for now treat r,g,b separately
-    r = sorted_df.loc[:, sorted_df.columns.str.startswith("r_")].values
-    g = sorted_df.loc[:, sorted_df.columns.str.startswith("g_")].values
-    b = sorted_df.loc[:, sorted_df.columns.str.startswith("b_")].values
-    print("rgb shapes ", r.shape, g.shape, b.shape)
-    r_quantized, r_min, r_max = custom_quantize(r, q_type="uniform", num_bits=num_bits)
-    g_quantized, g_min, g_max = custom_quantize(g, q_type="uniform", num_bits=num_bits)
-    b_quantized, b_min, b_max = custom_quantize(b, q_type="uniform", num_bits=num_bits)
-    
-    q0 = sorted_df.loc[:, sorted_df.columns.str.startswith("q0_")].values
-    q1 = sorted_df.loc[:, sorted_df.columns.str.startswith("q1_")].values
-    q2 = sorted_df.loc[:, sorted_df.columns.str.startswith("q2_")].values
-    print("q0q1q2 shapes ", q0.shape, q1.shape, q2.shape)
-    q0_quantized, q0_min, q0_max = custom_quantize(q0, q_type="uniform", num_bits=num_bits)
-    q1_quantized, q1_min, q1_max = custom_quantize(q1, q_type="uniform", num_bits=num_bits)
-    q2_quantized, q2_min, q2_max = custom_quantize(q2, q_type="uniform", num_bits=num_bits)
-
-    s0 = sorted_df.loc[:, sorted_df.columns.str.startswith("s0")].values
-    s1 = sorted_df.loc[:, sorted_df.columns.str.startswith("s1")].values
-    s2 = sorted_df.loc[:, sorted_df.columns.str.startswith("s2")].values
-    print("s0s1s2 shapes ", s0.shape, s1.shape, s2.shape)
-    s0_quantized, s0_min, s0_max = custom_quantize(s0, q_type="uniform", num_bits=num_bits)
-    s1_quantized, s1_min, s1_max = custom_quantize(s1, q_type="uniform", num_bits=num_bits)
-    s2_quantized, s2_min, s2_max = custom_quantize(s2, q_type="uniform", num_bits=num_bits)
-
-    print("alpha shapes ", sorted_df.loc[:, sorted_df.columns.str.startswith("alpha")].values.shape)
-    alpha = sorted_df.loc[:, sorted_df.columns.str.startswith("alpha")].values
-    alpha_quantized, alpha_min, alpha_max = custom_quantize(alpha, q_type="uniform", num_bits=num_bits)
-
-    #reshape all quantized fields and save to raw on num_bits
-    field_dict = {
-        "x": x_quantized,
-        "y": y_quantized,
-        "z": z_quantized,
-        "r": r_quantized,
-        "g": g_quantized,
-        "b": b_quantized,
-        "q0": q0_quantized,
-        "q1": q1_quantized,
-        "q2": q2_quantized,
-        "s0": s0_quantized,
-        "s1": s1_quantized,
-        "s2": s2_quantized,
-        "alpha": alpha_quantized
-    }
-
-    for field_name, field_values in field_dict.items():
-        # field_values can be 1D (N,) or 2D (N, C). Save each channel/column separately.
-        if field_values.ndim == 1:
-            channels = [field_values]
-        else:
-            channels = [field_values[:, i] for i in range(field_values.shape[1])]
-
-        for idx, channel in enumerate(channels):
-            if idx==0:
-                print("field_name :", field_name, num_bits , " \n", channel)
-                
-            reshaped = channel.reshape(sidelen, sidelen)
-            if num_bits <=8:
-                img = Image.fromarray(reshaped.astype(np.uint8), mode='L')
-            else:
-                img = Image.fromarray(reshaped.astype(np.uint16), mode='I;16')
-            fname = f"{field_name}_quantized.png" if len(channels) == 1 else f"{field_name}_{idx}_quantized.png"
-            save_path = os.path.join(repo_path, f"{num_bits}bits_pngs", fname)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            img.save(save_path)
-            saved_paths.append(save_path)
-            print(f"Saved quantized field '{fname}' to {save_path}")
-
-            # save params (use the scalar min/max variables computed earlier)
-            min_var = eval(field_name + '_min')
-            max_var = eval(field_name + '_max')
-            json_path = os.path.join( os.path.dirname(save_path), f"{fname}_quantization_params.txt")
-            with open(json_path, 'w') as f:
-                f.write(f"{field_name}_min: {min_var}\n")
-                f.write(f"{field_name}_max: {max_var}\n")
-                f.write(f"num_bits: {num_bits} \n")
-            print(f"Saved quantization params for field '{fname}' to {json_path}")
-    return saved_paths
+#    """
+#    Write each column of sorted_df to a PNG image. Each column is reshaped into a square
+#    of side sqrt(N) where N is the number of rows in sorted_df. Values are min-max
+#    normalized per-field to 0-255 and saved as grayscale PNGs. Returns list of written paths.
+#    """
+#    print("-------------------------- repo_path : ", repo_path, flush=True)
+#    os.makedirs(repo_path, exist_ok=True)
+#
+#    n = len(sorted_df)
+#    sidelen = int(math.isqrt(n))
+#    if sidelen * sidelen != n:
+#        raise ValueError(f"Number of rows ({n}) is not a perfect square; cannot reshape to square images.")
+#
+#    saved_paths = []
+#    
+#    # Groups parameters for quantization (use sorted_df, not outer df)
+#    # x,y,z quantized separately
+#    x = sorted_df.loc[:, sorted_df.columns.str.startswith("x_")].values
+#    y = sorted_df.loc[:, sorted_df.columns.str.startswith("y_")].values
+#    z = sorted_df.loc[:, sorted_df.columns.str.startswith("z_")].values
+#    print("xyz shapes ", x.shape, y.shape, z.shape)
+#    x_quantized, x_min, x_max = custom_quantize(x, q_type="uniform", num_bits=num_bits)
+#    y_quantized, y_min, y_max = custom_quantize(y, q_type="uniform", num_bits=num_bits)
+#    z_quantized, z_min, z_max = custom_quantize(z, q_type="uniform", num_bits=num_bits)
+#    
+#    # for now treat r,g,b separately
+#    r = sorted_df.loc[:, sorted_df.columns.str.startswith("r_")].values
+#    g = sorted_df.loc[:, sorted_df.columns.str.startswith("g_")].values
+#    b = sorted_df.loc[:, sorted_df.columns.str.startswith("b_")].values
+#    print("rgb shapes ", r.shape, g.shape, b.shape)
+#    r_quantized, r_min, r_max = custom_quantize(r, q_type="uniform", num_bits=num_bits)
+#    g_quantized, g_min, g_max = custom_quantize(g, q_type="uniform", num_bits=num_bits)
+#    b_quantized, b_min, b_max = custom_quantize(b, q_type="uniform", num_bits=num_bits)
+#    
+#    q0 = sorted_df.loc[:, sorted_df.columns.str.startswith("q0_")].values
+#    q1 = sorted_df.loc[:, sorted_df.columns.str.startswith("q1_")].values
+#    q2 = sorted_df.loc[:, sorted_df.columns.str.startswith("q2_")].values
+#    print("q0q1q2 shapes ", q0.shape, q1.shape, q2.shape)
+#    q0_quantized, q0_min, q0_max = custom_quantize(q0, q_type="uniform", num_bits=num_bits)
+#    q1_quantized, q1_min, q1_max = custom_quantize(q1, q_type="uniform", num_bits=num_bits)
+#    q2_quantized, q2_min, q2_max = custom_quantize(q2, q_type="uniform", num_bits=num_bits)
+#
+#    s0 = sorted_df.loc[:, sorted_df.columns.str.startswith("s0")].values
+#    s1 = sorted_df.loc[:, sorted_df.columns.str.startswith("s1")].values
+#    s2 = sorted_df.loc[:, sorted_df.columns.str.startswith("s2")].values
+#    print("s0s1s2 shapes ", s0.shape, s1.shape, s2.shape)
+#    s0_quantized, s0_min, s0_max = custom_quantize(s0, q_type="uniform", num_bits=num_bits)
+#    s1_quantized, s1_min, s1_max = custom_quantize(s1, q_type="uniform", num_bits=num_bits)
+#    s2_quantized, s2_min, s2_max = custom_quantize(s2, q_type="uniform", num_bits=num_bits)
+#
+#    print("alpha shapes ", sorted_df.loc[:, sorted_df.columns.str.startswith("alpha")].values.shape)
+#    alpha = sorted_df.loc[:, sorted_df.columns.str.startswith("alpha")].values
+#    alpha_quantized, alpha_min, alpha_max = custom_quantize(alpha, q_type="uniform", num_bits=num_bits)
+#
+#    #reshape all quantized fields and save to raw on num_bits
+#    field_dict = {
+#        "x": x_quantized,
+#        "y": y_quantized,
+#        "z": z_quantized,
+#        "r": r_quantized,
+#        "g": g_quantized,
+#        "b": b_quantized,
+#        "q0": q0_quantized,
+#        "q1": q1_quantized,
+#        "q2": q2_quantized,
+#        "s0": s0_quantized,
+#        "s1": s1_quantized,
+#        "s2": s2_quantized,
+#        "alpha": alpha_quantized
+#    }
+#
+#    for field_name, field_values in field_dict.items():
+#        # field_values can be 1D (N,) or 2D (N, C). Save each channel/column separately.
+#        if field_values.ndim == 1:
+#            channels = [field_values]
+#        else:
+#            channels = [field_values[:, i] for i in range(field_values.shape[1])]
+#
+#        for idx, channel in enumerate(channels):
+#            if idx==0:
+#                print("field_name :", field_name, num_bits , " \n", channel)
+#                
+#            reshaped = channel.reshape(sidelen, sidelen)
+#            if num_bits <=8:
+#                img = Image.fromarray(reshaped.astype(np.uint8), mode='L')
+#            else:
+#                img = Image.fromarray(reshaped.astype(np.uint16), mode='I;16')
+#            fname = f"{field_name}_quantized.png" if len(channels) == 1 else f"{field_name}_{idx}_quantized.png"
+#            save_path = os.path.join(repo_path, f"{num_bits}bits_pngs", fname)
+#            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+#            img.save(save_path)
+#            saved_paths.append(save_path)
+#            print(f"Saved quantized field '{fname}' to {save_path}")
+#
+#            # save params (use the scalar min/max variables computed earlier)
+#            min_var = eval(field_name + '_min')
+#            max_var = eval(field_name + '_max')
+#            json_path = os.path.join( os.path.dirname(save_path), f"{fname}_quantization_params.txt")
+#            with open(json_path, 'w') as f:
+#                f.write(f"{field_name}_min: {min_var}\n")
+#                f.write(f"{field_name}_max: {max_var}\n")
+#                f.write(f"num_bits: {num_bits} \n")
+#            print(f"Saved quantization params for field '{fname}' to {json_path}")
+#    return saved_paths
+#
+    return 0
 
     #if output_gs_ply is not None:    
     #    os.makedirs(os.path.dirname(output_gs_ply), exist_ok=True)

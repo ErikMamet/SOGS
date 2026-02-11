@@ -5,6 +5,12 @@ import numpy as np
 import pandas as pd
 import json 
 import time
+import ffmpeg 
+import json
+import torch 
+
+from .extract_pretrained_dyn_3dgs import saved_npz_to_df, df_to_params
+from .sort_dyn_3d_gaussians import prune_gaussians
 
 # Determine the path to the SOGS folder relative to this script
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -116,63 +122,142 @@ def get_latest_output_dir(exp, seq):
     print("we found that the latest dir was ", latest_dir)
     return os.path.join(base_output_dir, latest_dir)
 
-def codec(npz_path = None, compress = False, use_sorted_indexes = False ,decompress = False, test_bypass= False, exp=None, seq=None):
-    #date and time stamp for output folder naming
-    print("Entering codec function ")
-    if compress == True:
-        output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
-        os.makedirs(output_dir, exist_ok=True)
-        df = saved_npz_to_df(npz_path)
-        if test_bypass == True :
-            print("============================== NO COMPRESSION OR DECOMPRESSION =====================================")
-            return df
-        print("DONE CREATING DF")
-        #write_path = os.path.join(output_dir, "concatenated_output.ply")
-        #save_output_to_ply(concatenated_array, names, write_path, ascii=True)
-        # `sort_dyn_gaussians` is a Click command when imported from
-        # `sort_dyn_3d_gaussians.py` (it is decorated with @click.command()).
-        # Calling it directly will make Click try to parse sys.argv which causes
-        # the "unexpected extra arguments" error. Call the underlying callback
-        # (the original Python function) when available.
-        print("ENTERING SORTING")     
-        t1= time.time()   
-        sorted_df = sort_dyn_gaussians(df, resume_from_last=use_sorted_indexes)
-        t2 = time.time()
-        print("sorting took ", t2 - t1, " seconds")
-        print("ENTERING COMPRESSION")
-        compress_df(sorted_df, out_folder_path=output_dir)
-        t3 = time.time()
-        print("compression took ", t3 - t2, " seconds")
-        print("compression output folder :", output_dir)
-        total_size = 0
-        for file in os.listdir(output_dir):
-            file_path= os.path.join(output_dir, file)
-            file_size =os.path.getsize(file_path)
-            total_size += file_size
-        print("total compressed size (bytes) : ", total_size)
-    if decompress == True:
-        #df = saved_npz_to_df(npz_path)
-        #return prune_gaussians(df, int(np.sqrt(len(df)))**2)
-        output_dir = get_latest_output_dir(exp, seq)
-        print("++++++++ decompressing ", output_dir)
-        total_size = 0
-        for file in os.listdir(output_dir):
-            file_path= os.path.join(output_dir, file)
-            file_size =os.path.getsize(file_path)
-            total_size += file_size
-        print("total compressed size (bytes) : ", total_size)
-        decompressed_df = decompress_df(output_dir)
-        #print decompressed_df keys
-        # compare decompressed df to original df
-        # make sure they have the same shape and columns
-        # make sure that column values are close enough (since compression could be lossy)
-        if npz_path is not None:
-            df = saved_npz_to_df(npz_path)
-            sorted_df = sort_dyn_gaussians(df, resume_from_last=use_sorted_indexes)
-            report = compare_dataframes(sorted_df, decompressed_df, json_path=get_latest_output_dir(exp, seq) + "/decompression_report.json")
-        print("WE ARE RETURNING THE SORTED_DF DF AS A TEST")
-        return decompressed_df
-    #TODO, understand (no chat gpt) and modify core.py so that is takes in vectors of any size (since ours are bound to vary)
+
+def encoder(npz_path = None, exp=None, seq=None):
+    df = saved_npz_to_df(npz_path)
+    num_gaussians = len(df)
+    sidelen = int(np.sqrt(num_gaussians))
+
+    #sorted_df = prune_gaussians(df, sidelen * sidelen)
+
+    #### SORTING THE POINT CLOUD
+    t1= time.time()   
+    sorted_df = sort_dyn_gaussians(df, resume_from_last=False, exp=exp, seq=seq)
+    t2 = time.time()
+    print("sorting took ", t2 - t1, " seconds")
+
+    ### COMPRESSING THE SORTED POINT CLOUD
+    output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    # FFmpeg input: pipe frames as rawvideo (12-bit grayscale little-endian)
+
+    params = df_to_params(sorted_df)
+    print("params type ", type(params))
+    # TODO: Convert to 12 bits little endian stored on 16 bits (gray12le) and save each attribute as a separate video. 
+    # for each attribute of params
+    # 1) Find the highest and lowest values of the attribute across all frames and all gaussians. This will be used to normalize the values to the 12 bit range (0-4095)
+    os.makedirs(output_dir, exist_ok=False)
+    data = {"key_list": []}
+    Timesteps = params["means3D"].shape[0]
+    for k, v in params.items():
+        v = v.detach().cpu().numpy()
+        print("processing : ", k)
+        data["key_list"].append(k)
+        max_ = v.max()
+        min_ = v.min()
+        data[f"{k}_max"] = float(max_)
+        data[f"{k}_min"] = float(min_)
+
+        if max_ != min_:
+            frames = ((v - min_) / (max_ - min_)) * (2**12 - 1)
+        else:
+            print("min==max we have a problem")
+            raise ValueError
+        frames = np.clip(frames, 0, 2**12 - 1).astype(np.uint16)
+        frames = frames.reshape((-1, sidelen, sidelen))
+        D, H, W = frames.shape #Depth, Height, Width
+        print("frames type", type(frames))
+        print("frames shape", frames.shape)
+        
+
+        output_path = output_dir+f"/{k}_output_12bit.mp4"
+
+        process = (
+            ffmpeg
+            .input(
+                'pipe:',
+                format='rawvideo',
+                pix_fmt='gray12le',
+                s=f'{sidelen}x{sidelen}',
+                r=30
+            )
+            .output(
+                output_path,
+                pix_fmt='gray12le',
+                vcodec='libx265',
+                **{
+                    'x265-params': 'preset=medium:lossless=1'
+                }
+            )
+            .overwrite_output()
+            .run_async(pipe_stdin=True)
+        )
+
+        # Write frames
+        data[f"{k}_Depth"] = D
+        for i, frame in enumerate(frames):
+            process.stdin.write(frame.astype('<u2').tobytes())
+
+        process.stdin.close()
+        process.wait()
+
+
+    print("key list ", data["key_list"])
+    data["sidelen"] = sidelen
+    data[f"timesteps"] = Timesteps
+    with open(f"{output_dir}/compression_meta_data.json", "w") as f:
+        json.dump(data, f)
+
+    print("compression output folder :", output_dir)
+    total_size = 0
+    for file in os.listdir(output_dir):
+        file_path= os.path.join(output_dir, file)
+        file_size =os.path.getsize(file_path)
+        total_size += file_size
+    print("total compressed size (bytes) : ", total_size)
+    return params
+
+import subprocess
+
+def decode_h265_to_frames(file_path, expected_shape):
+    Depth, H, W = expected_shape
+    cmd = [
+        'ffmpeg',
+        '-i', file_path,
+        '-f', 'rawvideo',
+        '-pix_fmt', 'gray12le',
+        '-'
+    ]
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    raw_frames, _ = process.communicate()
+    frames = np.frombuffer(raw_frames, dtype='<u2').reshape((Depth, H, W))
+    return frames
+
+
+def decoder(exp=None, seq=None):
+    compressed_output_dir = get_latest_output_dir(exp, seq)
+    with open(os.path.join(compressed_output_dir, "compression_meta_data.json"), 'r') as f :
+        data = json.load(f)
+    sidelen = data["sidelen"]
+    timesteps = data["timesteps"]
+    params = {}
+    for key in data["key_list"]:
+        Depth = data[f"{key}_Depth"]
+        max_ = np.float32(data[f"{key}_max"])
+        min_ = np.float32(data[f"{key}_min"]) 
+        file_path = os.path.join(compressed_output_dir, f"{key}_output_12bit.mp4")
+        frames = decode_h265_to_frames(file_path, (Depth, sidelen,sidelen))
+        try:
+            frames = frames.reshape((timesteps, sidelen * sidelen, -1))
+        except ValueError:
+            frames = frames.reshape((sidelen * sidelen, -1))
+        print("frame shape ", frames.shape)
+        frames = np.float32(frames * (max_ - min_) / (2**12 - 1) + min_)
+        params[key]=frames
+
+    params = {k: torch.nn.Parameter(torch.tensor(v).cuda().float().contiguous().requires_grad_(False).detach()) for k, v in
+          params.items()}
     
+    return params
+
 if __name__ == "__main__":
     decompress_df()

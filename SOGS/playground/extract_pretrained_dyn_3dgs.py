@@ -1,8 +1,9 @@
+import torch
+torch.cuda.init()
 import os
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import torch
 
 def saved_npz_to_df(npz_path):
     """
@@ -95,7 +96,6 @@ def df_to_params(df):
     Reconstruct numpy arrays from DataFrame.
     Returns a pure NumPy dict.
     """
-
     params = {}
 
     # ------------------------
