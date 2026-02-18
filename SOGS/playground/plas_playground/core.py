@@ -533,7 +533,7 @@ def sort_with_plas(
     params,
     min_block_size=16,
     min_blur_radius=1,
-    improvement_break=1e-5,
+    improvement_break=1e-8,
     border_type_x="circular",
     border_type_y="reflect",
     seed=None,
@@ -562,7 +562,7 @@ def sort_with_plas(
     start_time = time.time()
 
     radius_f = max(H, W) / 2 - 1
-    radii = list(radius_seq(max_radius=radius_f, min_radius=min_blur_radius, radius_update=0.95))
+    radii = list(radius_seq(max_radius=radius_f, min_radius=min_blur_radius, radius_update=0.96))
 
     if verbose:
         pbar = tqdm(radii)
@@ -595,7 +595,7 @@ def sort_with_plas(
                 improvement_break,
                 pbar=pbar,
             )
-            print("shape of params after reordering ", params.shape)
+            #print("shape of params after reordering ", params.shape)
 
             total_num_reorders += num_reorders
 

@@ -124,6 +124,7 @@ def get_latest_output_dir(exp, seq):
 
 
 def encoder(npz_path = None, exp=None, seq=None):
+    VISUALIZE_FEATURE_MAPS = True
     df = saved_npz_to_df(npz_path)
     num_gaussians = len(df)
     sidelen = int(np.sqrt(num_gaussians))
@@ -132,6 +133,7 @@ def encoder(npz_path = None, exp=None, seq=None):
 
     #### SORTING THE POINT CLOUD
     t1= time.time()   
+    #sorted_df = prune_gaussians(df, sidelen*sidelen) #sort_dyn_gaussians(df, resume_from_last=False, exp=exp, seq=seq)
     sorted_df = sort_dyn_gaussians(df, resume_from_last=False, exp=exp, seq=seq)
     t2 = time.time()
     print("sorting took ", t2 - t1, " seconds")
@@ -139,8 +141,9 @@ def encoder(npz_path = None, exp=None, seq=None):
     ### COMPRESSING THE SORTED POINT CLOUD
     output_dir = './playground/compressed_outputs'+'/'+'compression_'+exp+"_"+seq+"_"+str(pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
     # FFmpeg input: pipe frames as rawvideo (12-bit grayscale little-endian)
-
+    unsorted_params = df_to_params(df)
     params = df_to_params(sorted_df)
+    
     print("params type ", type(params))
     # TODO: Convert to 12 bits little endian stored on 16 bits (gray12le) and save each attribute as a separate video. 
     # for each attribute of params
@@ -148,22 +151,49 @@ def encoder(npz_path = None, exp=None, seq=None):
     os.makedirs(output_dir, exist_ok=False)
     data = {"key_list": []}
     Timesteps = params["means3D"].shape[0]
+    for k,v in params.items():
+        print(k)
+        print(v.shape)
     for k, v in params.items():
+        print("v.shape ", v.shape)
         v = v.detach().cpu().numpy()
         print("processing : ", k)
         data["key_list"].append(k)
-        max_ = v.max()
-        min_ = v.min()
-        data[f"{k}_max"] = float(max_)
-        data[f"{k}_min"] = float(min_)
-
-        if max_ != min_:
-            frames = ((v - min_) / (max_ - min_)) * (2**12 - 1)
+        max_0 = v.max()
+        min_0 = v.min()  # Ensure min is at least 0
+        if k == "rgb_colors":
+            max_0 = min(1, v[0,:,:].max())
+            min_0 = max(0, v[0,:,:].min())     
+            v=v.clip(min_0, max_0) 
+            
+        data[f"{k}_max"] = float(max_0)
+        data[f"{k}_min"] = float(min_0)
+        if max_0 != min_0:
+            frames = ((v - min_0) / (max_0 - min_0)) * (2**12 - 1)
         else:
             print("min==max we have a problem")
             raise ValueError
         frames = np.clip(frames, 0, 2**12 - 1).astype(np.uint16)
-        frames = frames.reshape((-1, sidelen, sidelen))
+        #case by case reshaping to make sure feature maps are well organized
+        if k == "means3D":
+            #frames are of shape (T,Sidelen,Sidelen,3)
+            #I want to stack frames such that 
+
+            X,Y,Z = frames[:,:,0],frames[:,:,1],frames[:,:,2]
+            frames = np.concatenate((X,Y,Z), axis=0)
+        if k == "log_scales":
+            s1,s2,s3 = frames[:,0],frames[:,1],frames[:,2]
+            print("+------+", frames[:,1].shape )
+            frames = np.concatenate((s1,s2,s3), axis=0)
+            print("++++++++", frames.shape )
+        if k == "rgb_colors":
+            R,G,B = frames[:,:,0],frames[:,:,1],frames[:,:,2]
+            frames = np.concatenate((R,G,B), axis=0)
+        if k == "unnorm_rotations":
+            q1,q2,q3,q4 = frames[:,:,0],frames[:,:,1],frames[:,:,2],frames[:,:,3]
+            frames = np.concatenate((q1,q2,q3,q4), axis=0)
+        frames = frames.reshape((-1, sidelen , sidelen))
+
         D, H, W = frames.shape #Depth, Height, Width
         print("frames type", type(frames))
         print("frames shape", frames.shape)
@@ -185,7 +215,7 @@ def encoder(npz_path = None, exp=None, seq=None):
                 pix_fmt='gray12le',
                 vcodec='libx265',
                 **{
-                    'x265-params': 'preset=medium:lossless=1'
+                    'x265-params': 'lossless=1'
                 }
             )
             .overwrite_output()
@@ -229,8 +259,26 @@ def decode_h265_to_frames(file_path, expected_shape):
     ]
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     raw_frames, _ = process.communicate()
+    brut_frames = np.frombuffer(raw_frames, dtype='<u2')
+    print("frames size before reshape()", brut_frames.shape)
     frames = np.frombuffer(raw_frames, dtype='<u2').reshape((Depth, H, W))
     return frames
+
+def decode_h265_to_visualizable(file_path, expected_shape):
+    Depth, H, W = expected_shape
+    name = file_path.split("/")[-1].split(".")[0]
+    repo_name = file_path.split("/")[:-1]
+    os.makedirs("/".join(repo_name + ["visualization_frames"]), exist_ok=True)
+    cmd = [
+        'ffmpeg',
+        '-i', file_path,
+        '-pix_fmt', 'gray12le',
+        '-f', 'rawvideo',
+        os.path.join("/".join(repo_name + ["visualization_frames"]), f"{name}.yuv")
+    ]
+
+    process = subprocess.Popen(cmd)
+    return None
 
 
 def decoder(exp=None, seq=None):
@@ -246,14 +294,32 @@ def decoder(exp=None, seq=None):
         min_ = np.float32(data[f"{key}_min"]) 
         file_path = os.path.join(compressed_output_dir, f"{key}_output_12bit.mp4")
         frames = decode_h265_to_frames(file_path, (Depth, sidelen,sidelen))
-        try:
-            frames = frames.reshape((timesteps, sidelen * sidelen, -1))
-        except ValueError:
-            frames = frames.reshape((sidelen * sidelen, -1))
-        print("frame shape ", frames.shape)
+        decode_h265_to_visualizable(file_path, (Depth, sidelen,sidelen)) # this is just to visualize the frames with ffmpeg to check that the decoding is correct, it outputs .yuv files that can be visualized with ffmpeg or vlc. We keep it here for debugging purposes but it can be removed later.
+        print(f"Decoding {key}")
+        print("8888888888 params shape", frames.shape)
+        print("8888888888 Depth, timesteps, sidelen", Depth, timesteps, sidelen)
+
+        print("77777777777777 frames.shape", frames.shape)
+        if key == "means3D":
+            X,Y,Z = frames[:timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[timesteps:2*timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[2*timesteps:3*timesteps,:,:].reshape((timesteps, sidelen*sidelen))
+            frames = np.stack((X, Y, Z), axis=2)
+        if key == "rgb_colors":
+            R,G,B = frames[:timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[timesteps:2*timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[2*timesteps:3*timesteps,:,:].reshape((timesteps, sidelen*sidelen))
+            frames = np.stack((R, G, B), axis=2)
+            print("frames RGB colors shape", frames.shape)
+        if key == "log_scales":
+            print("log scales shape", frames.shape)
+            s1,s2,s3 = frames[0,:].reshape((sidelen*sidelen)), frames[1,:].reshape((sidelen*sidelen)), frames[2,:].reshape((sidelen*sidelen))
+            frames = np.stack((s1, s2, s3), axis=1)
+            print("frames les shape", frames.shape)
+        if key == "unnorm_rotations":
+            q0,q1,q2,q3 = frames[:timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[timesteps:2*timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[2*timesteps:3*timesteps,:,:].reshape((timesteps, sidelen*sidelen)), frames[3*timesteps:4*timesteps,:,:].reshape((timesteps, sidelen*sidelen))
+            frames = np.stack((q0,q1,q2,q3), axis=2)
+            print("frames rotations shape", frames.shape)
+        if key == "logit_opacities":
+            frames = frames.reshape((sidelen * sidelen))
         frames = np.float32(frames * (max_ - min_) / (2**12 - 1) + min_)
         params[key]=frames
-
     params = {k: torch.nn.Parameter(torch.tensor(v).cuda().float().contiguous().requires_grad_(False).detach()) for k, v in
           params.items()}
     

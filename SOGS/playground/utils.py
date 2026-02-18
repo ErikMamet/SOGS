@@ -116,3 +116,17 @@ def compare_quantization_schemes(r):
         "r_gaussian": r_g,
         "r_uniform": r_u
     }
+
+
+def visualize_params(params, sidelen, folder):
+    # This function takes in :
+        # a set of params defined as follows     params = {k: torch.nn.Parameter(torch.tensor(v).cuda().float().contiguous().requires_grad_(True)) for k, v in params.items() if v is not None}
+        # the path to a folder (mkdir if need be) 
+        # an integer sidelen
+    # For each key in params :
+        # it writes the params on 12 bits : int((v-min_val)/(max_val-min_val)*2**12)
+        # it creates a subfolder at the given path, it reshapes params to (-1, sidelen, sidelen)
+        # for i in range(params.shape[0]), it saves params[i,:,:] as a 12 bit greyscale image 
+    # In that sub-folder for each time-step, it 
+    #TODO
+    pass
